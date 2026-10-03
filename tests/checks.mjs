@@ -96,6 +96,66 @@ const { satisfies, parseVersion, compareVersions, runChecks } = await import('..
   console.log('semver: %d range cases passed', cases.length)
 }
 
+// ------------------------------------------------- semver's two easy-to-miss rules
+{
+  // 1. A prerelease only satisfies a set when a comparator carries a prerelease
+  //    with the SAME [major, minor, patch]. Without this rule the drift check
+  //    would call 0.1.9-rc.2 compatible with ">=0.1.2-rc.1 <0.2.0", which npm
+  //    and dsh both reject.
+  assert.equal(satisfies('0.1.9-rc.2', '>=0.1.2-rc.1 <0.2.0'), false, 'prerelease tuple rule')
+  assert.equal(satisfies('0.1.2-rc.5', '>=0.1.2-rc.1'), true, 'a matching tuple admits later prereleases')
+  assert.equal(satisfies('0.2.0-rc.1', '>=0.1.2-rc.1 <0.2.0'), false, 'the 0.2.0 tuple is not named')
+  assert.equal(satisfies('0.2.0-rc.1', '>=0.1.2-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0'), true, 'naming the tuple admits it')
+  assert.equal(satisfies('0.1.2', '>=0.1.2-rc.1'), true, 'a release is unaffected by the rule')
+
+  // 2. Caret tightens below 1.0.0. Treating "^0.1.2" as "<1.0.0" would call a
+  //    0.2.0 host compatible with a plugin that never tested against it.
+  assert.equal(satisfies('0.2.0', '^0.1.2'), false, '^0.1.2 does NOT reach 0.2.0')
+  assert.equal(satisfies('0.1.9', '^0.1.2'), true)
+  assert.equal(satisfies('0.0.3', '^0.0.3'), true)
+  assert.equal(satisfies('0.0.4', '^0.0.3'), false, '^0.0.3 pins the patch')
+  assert.equal(satisfies('0.9.0', '^0'), true, '^0 is <1.0.0')
+  assert.equal(satisfies('0.2.0', '^0.1'), false, '^0.1 is <0.2.0')
+  assert.equal(satisfies('2.0.0', '^1.2.3'), false)
+  console.log('semver: prerelease-tuple and 0.x caret rules hold')
+}
+
+// ------------------------------------- cross-check against the real semver package
+{
+  const { importOptional } = await import('../lib/host.js')
+  const mod = await importOptional(['semver'])
+  const real = mod === undefined ? undefined : (mod.default ?? mod)
+  if (real === undefined || typeof real.satisfies !== 'function') {
+    console.log('cross-check: real semver not resolvable, skipped')
+  } else {
+    const ranges = [
+      '>=1.0.0', '^1.2.3', '~1.2.3', '>=1.0.0 <2.0.0', '>=0.1.2-rc.1 <0.2.0',
+      '^0.1.2-rc.1', '^0.1.2', '^0.0.3', '^0', '^0.1', '~0.1.2', '=1.2.3',
+      '>1.0.0', '<=2.0.0', '^0.2.0', '>=0.1.2-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0',
+    ]
+    const versions = [
+      '0.0.2', '0.0.3', '0.0.4', '0.0.9', '0.1.0', '0.1.2-rc.1', '0.1.2', '0.1.5',
+      '0.1.9-rc.2', '0.2.0-rc.1', '0.2.0', '0.2.5', '0.3.0-rc.1', '1.0.0', '1.2.3',
+      '1.2.4', '1.3.0', '2.0.0', '2.5.0',
+    ]
+    let mismatches = 0
+    let checked = 0
+    for (const range of ranges) {
+      for (const version of versions) {
+        checked += 1
+        const ours = satisfies(version, range)
+        const theirs = real.satisfies(version, range)
+        if (ours !== theirs) {
+          mismatches += 1
+          console.error(`  MISMATCH v=${version} range=${range} ours=${ours} semver=${theirs}`)
+        }
+      }
+    }
+    assert.equal(mismatches, 0, 'the built-in evaluator must agree with the semver package')
+    console.log('cross-check: %d cases agree with the real semver package', checked)
+  }
+}
+
 /** A context pointing at a profile directory. */
 function makeContext(profileDir, { tools, webServer } = {}) {
   const loader = { ctx: { baseUrl: pathToFileURL(`${profileDir}/`).href } }

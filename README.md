@@ -130,7 +130,7 @@ npm test
 | --- | --- |
 | `tests/smoke.mjs` | mounting against a service-less and a hostile context; report shape; file persistence and its guard |
 | `tests/roster.mjs` | the three row states, group filtering, `AggregateError`/`cause` unwrapping, the timeout guard |
-| `tests/checks.mjs` | every semver range form case by case; the config check against valid, malformed and bundle-less profiles; tools; the port probe; four checks surviving a throwing context |
+| `tests/checks.mjs` | every semver range form case by case; **a 304-case cross-check against the real `semver` package**; the config check against valid, malformed and bundle-less profiles; tools; the port probe; four checks surviving a throwing context |
 | `tests/host-resolution.mjs` | the tool and output schemas validated by the **real** `defineTool` from an installed dsh — the only place the value-schema DSL restrictions show up |
 
 `host-resolution.mjs` skips cleanly when no dsh install is present.

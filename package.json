@@ -27,16 +27,25 @@
     "diagnostics",
     "doctor"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaocxiaohai666/dsh-plugin-selfcheck.git"
+  },
+  "homepage": "https://github.com/xiaocxiaohai666/dsh-plugin-selfcheck#readme",
+  "bugs": {
+    "url": "https://github.com/xiaocxiaohai666/dsh-plugin-selfcheck/issues"
+  },
+  "author": "陈天旭 <1215737270@qq.com>",
   "dsh": {
     "engines": {
-      "dsh": ">=0.1.2-rc.1"
+      "dsh": ">=0.1.2-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0 || >=0.3.0-rc.1 <0.4.0"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1"
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1 <0.2.0 || >=0.2.0-rc.1 <0.3.0 || >=0.3.0-rc.1 <0.4.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh-tools": {
