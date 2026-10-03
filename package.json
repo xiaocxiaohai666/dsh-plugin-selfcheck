@@ -1,0 +1,53 @@
+{
+  "name": "dsh-plugin-selfcheck",
+  "version": "0.1.0",
+  "description": "Terminal-first self-check for a DeepSeek Harness install: at boot it prints every plugin row in the loader tree (mounted / disabled / failed, with the exception text), then reports dependency version drift, profile config validity, web port reachability, and the registered tool inventory. Reads whatever plugins the user has; nothing is hard-coded. No client half, no web console, no background service.",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/**/*.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "self-check",
+    "selfcheck",
+    "plugin-health",
+    "boot-report",
+    "diagnostics",
+    "doctor"
+  ],
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.1.2-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-tools": ">=0.1.2-rc.1"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "scripts": {
+    "test": "node tests/smoke.mjs && node tests/roster.mjs && node tests/checks.mjs && node tests/host-resolution.mjs"
+  },
+  "license": "MIT"
+}
