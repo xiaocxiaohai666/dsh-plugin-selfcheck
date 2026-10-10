@@ -125,7 +125,7 @@ function loaderContext() {
   assert.ok(['ok', 'warn', 'fail'].includes(json.level))
   assert.equal(json.plugins.counts.ok, 1)
   assert.equal(json.plugins.counts.skip, 1)
-  assert.equal(json.checks.length, 4)
+  assert.equal(json.checks.length, 5)
   assert.equal(json.plugins.rows.length, 2)
   assert.ok(typeof json.ms === 'number')
   console.log('loader ctx:', printed.split('\n')[0], '| report files written')

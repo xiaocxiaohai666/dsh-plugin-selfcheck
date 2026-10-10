@@ -1,7 +1,7 @@
 {
   "name": "dsh-plugin-selfcheck",
-  "version": "0.1.0",
-  "description": "Terminal-first self-check for a DeepSeek Harness install: at boot it prints every plugin row in the loader tree (mounted / disabled / failed, with the exception text), then reports dependency version drift, profile config validity, web port reachability, and the registered tool inventory. Reads whatever plugins the user has; nothing is hard-coded. No client half, no web console, no background service.",
+  "version": "0.2.0",
+  "description": "Terminal-first self-check for a DeepSeek Harness install: at boot it prints every plugin row in the loader tree (mounted / disabled / failed, with the exception text), then reports dependency version drift, the host's peer gate (plugins dsh will refuse to mount, which never appear in the tree at all), profile config validity, web port reachability, and the registered tool inventory. Reads whatever plugins the user has; nothing is hard-coded. No client half, no web console, no background service.",
   "type": "module",
   "main": "lib/index.js",
   "exports": {
@@ -56,7 +56,7 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "test": "node tests/smoke.mjs && node tests/roster.mjs && node tests/checks.mjs && node tests/host-resolution.mjs"
+    "test": "node tests/smoke.mjs && node tests/roster.mjs && node tests/checks.mjs && node tests/compat.mjs && node tests/host-resolution.mjs"
   },
   "license": "MIT"
 }

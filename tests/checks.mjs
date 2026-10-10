@@ -15,7 +15,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 /** Build a profile directory that looks installed to the checks. */
-function makeProfile({ brokenPatch = false, bundles = true, patchRange = null } = {}) {
+function makeProfile({ brokenPatch = false, bundles = true, patchRange = null, peerRange = null, peerPackage = '@deepseek-ai/dsh-tools' } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-selfcheck-profile-'))
   writeFileSync(join(dir, 'cordis.yml'), '# root\n[]\n', 'utf8')
   writeFileSync(join(dir, 'cordis.patch.yml'), brokenPatch ? '- insert: [oops\n' : '# patch\n[]\n', 'utf8')
@@ -23,13 +23,14 @@ function makeProfile({ brokenPatch = false, bundles = true, patchRange = null } 
     name: 'web-profile',
     ...bundles ? { dsh: { profile: { bundles: ['@deepseek-ai/dsh-base'] } } } : {},
   }, null, 2), 'utf8')
-  if (patchRange !== null) {
+  if (patchRange !== null || peerRange !== null) {
     const pluginDir = join(dir, 'node_modules', 'fake-plugin')
     mkdirSync(pluginDir, { recursive: true })
     writeFileSync(join(pluginDir, 'package.json'), JSON.stringify({
       name: 'fake-plugin',
       version: '1.0.0',
-      dsh: { engines: { dsh: patchRange } },
+      ...patchRange !== null ? { dsh: { engines: { dsh: patchRange } } } : {},
+      ...peerRange !== null ? { peerDependencies: { [peerPackage]: peerRange } } : {},
     }, null, 2), 'utf8')
   }
   return dir
@@ -182,23 +183,34 @@ function rosterWith(specifier) {
   }
 }
 
-// -------------------------------------------------------------- the four checks
+// -------------------------------------------------------------- the five checks
 {
   const profile = makeProfile({ patchRange: '>=99.0.0' })
   const checks = await runChecks(makeContext(profile), rosterWith('fake-plugin'))
 
-  assert.deepEqual(checks.map(c => c.id), ['deps.version-drift', 'config.files', 'http.port', 'tools.registered'])
+  assert.deepEqual(checks.map(c => c.id), ['deps.version-drift', 'deps.peer-gate', 'config.files', 'http.port', 'tools.registered'])
 
-  // Drift: the fake plugin demands dsh >= 99, which nothing satisfies.
+  // Drift: the fake plugin demands dsh >= 99, which nothing satisfies. It
+  // declares no peers, though, so the host would still mount it -- the stale
+  // declaration is an advisory, not a failure. (Without semver the check cannot
+  // tell the two apart and stays conservative, so both levels are accepted.)
   const drift = checks.find(c => c.id === 'deps.version-drift')
   if (drift.level === 'ok' || drift.detail.includes('could not read')) {
     console.log('drift: skipped (no dsh install visible from this process)')
+  } else if (drift.detail.includes('stale range')) {
+    assert.equal(drift.level, 'warn')
+    assert.ok(drift.extra.some(line => line.includes('fake-plugin')), 'the stale declaration is named')
+    console.log('drift (stale declaration):', drift.detail)
   } else {
     assert.equal(drift.level, 'fail')
-    assert.match(drift.detail, /do not accept the installed dsh/)
     assert.ok(drift.extra.some(line => line.includes('fake-plugin')), 'the offending plugin is named')
-    console.log('drift:', drift.detail)
+    console.log('drift (no semver, conservative):', drift.detail)
   }
+
+  // The peer gate: the same profile is clean, because the strict plugin has no peers.
+  const gate = checks.find(c => c.id === 'deps.peer-gate')
+  assert.ok(['ok', 'warn'].includes(gate.level), `a peer-clean profile never fails the gate: ${gate.detail}`)
+  console.log('peer gate (clean):', gate.detail)
 
   // Config: all three files valid.
   const config = checks.find(c => c.id === 'config.files')
@@ -209,6 +221,36 @@ function rosterWith(specifier) {
   // Port and tools: no services on the stub context.
   assert.equal(checks.find(c => c.id === 'http.port').level, 'warn')
   assert.equal(checks.find(c => c.id === 'tools.registered').level, 'warn')
+}
+
+// ------------------------------------------- a plugin the host would refuse
+{
+  // A peer range no host can satisfy: dsh refuses to mount it, so it never
+  // appears in the loader tree and the roster cannot see it. Both dependency
+  // checks must escalate together -- the declaration is stale AND the gate
+  // blocks it. (An exact pin of an older host is the real-world shape of this;
+  // it is covered against a fixed host version in tests/compat.mjs, because
+  // which dsh this process can see is not guaranteed.)
+  const profile = makeProfile({ patchRange: '>=99.0.0', peerRange: '>=99.0.0' })
+  const checks = await runChecks(makeContext(profile), rosterWith('fake-plugin'))
+
+  const gate = checks.find(c => c.id === 'deps.peer-gate')
+  if (gate.detail.includes('could not read') || gate.detail.includes('no semver module')) {
+    console.log('peer gate: skipped (no semver resolvable from this process)')
+  } else {
+    assert.equal(gate.level, 'fail', 'a refused plugin fails the gate')
+    assert.match(gate.detail, /refuses to mount/)
+    assert.ok(gate.extra.some(line => line.includes('fake-plugin')), 'the refused plugin is named')
+    assert.ok(gate.extra.some(line => line.includes('@deepseek-ai/dsh-tools')), 'the rejected peer is named')
+    assert.match(gate.hint, /allow-version/, 'the remedy names the exemption command')
+    console.log('peer gate (refused):', gate.detail)
+  }
+
+  const drift = checks.find(c => c.id === 'deps.version-drift')
+  if (!drift.detail.includes('could not read') && !drift.detail.includes('all ')) {
+    assert.equal(drift.level, 'fail', 'a stale declaration the host also refuses is blocking')
+    console.log('drift (blocking):', drift.detail)
+  }
 }
 
 // --------------------------------------------------------- a broken patch file
@@ -273,12 +315,12 @@ function rosterWith(specifier) {
     get: () => { throw new Error('lookup exploded') },
   }
   const checks = await runChecks(hostile, rosterWith('nothing-installed'))
-  assert.equal(checks.length, 4, 'all four checks still report')
+  assert.equal(checks.length, 5, 'all five checks still report')
   for (const check of checks) {
     assert.ok(['ok', 'warn', 'fail'].includes(check.level))
     assert.ok(typeof check.detail === 'string' && check.detail !== '', `${check.id} has a detail`)
   }
-  console.log('hostile ctx: 4 checks survived, levels =', checks.map(c => c.level).join('/'))
+  console.log('hostile ctx: 5 checks survived, levels =', checks.map(c => c.level).join('/'))
 }
 
 console.log('\nchecks: all assertions passed')

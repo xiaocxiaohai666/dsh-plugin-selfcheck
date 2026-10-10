@@ -2,7 +2,11 @@
 
 给 [DeepSeek Harness](https://github.com/deepseek-ai) 用的**终端优先**自检插件。
 
-每次启动，它会在**你启动 dsh 的那个控制台窗口里**打出整棵插件树的每一行——已挂载 / 已禁用 / **失败并附异常内容**——然后跑四项安装级检查，然后闭嘴。
+每次启动，它会在**你启动 dsh 的那个控制台窗口里**打出整棵插件树的每一行——已挂载 / 已禁用 / **失败并附异常内容**——然后跑五项安装级检查，然后闭嘴。
+
+0.2 起，插件树不再是全部真相：`peerDependencies` 不接受当前宿主的插件会在**挂载之前**就被拒，于是它一行都不出现——**掉了一个插件和一切正常长得一模一样**。`deps.peer-gate` 检查从各插件的 manifest 重新推演同一条规则，把这个盲区补上。
+
+> 插件自身的版本与宿主版本无关：这里的 `0.2.0` 指"本插件的第二个功能版本"，不是"面向 dsh 0.2"。
 
 [English](README.md) | 中文
 
@@ -24,11 +28,20 @@ cordis 本来就有这个功能：`Loader.showLog()` 会在每次挂载时打 `a
 [selfcheck]  ok   @liustack/modlens                           include:modlens
 [selfcheck]  ---- plugins: 148 mounted, 28 disabled, 0 failed
 [selfcheck]  ---- install checks:
-[selfcheck]  ok   deps.version-drift    all 9 plugins declaring dsh.engines.dsh accept 0.1.2-rc.1
+[selfcheck]  ok   deps.version-drift    all 9 plugins declaring dsh.engines.dsh accept 0.2.0-rc.2
+[selfcheck]  ok   deps.peer-gate        no plugin rejects dsh 0.2.0-rc.2 (11 candidate(s) scanned, 0 incompatible)
 [selfcheck]  ok   config.files          ~/.dsh/profiles/web (3 files checked)
 [selfcheck]  ok   http.port             http://127.0.0.1:3080/ answered 200 in 3ms
 [selfcheck]  ok   tools.registered      34 model-facing tools registered
-[selfcheck]  ---- selfcheck OK - 148 mounted, 0 failed, checks 4 ok / 0 warn / 0 fail (742ms)
+[selfcheck]  ---- selfcheck OK - 148 mounted, 0 failed, checks 5 ok / 0 warn / 0 fail (742ms)
+```
+
+被宿主拒绝的插件长这样——注意**插件树里一行都没有它，但这里点名了**：
+
+```
+[selfcheck]  fail deps.peer-gate        1 plugin(s) dsh 0.2.0-rc.2 refuses to mount - they are absent from the roster, not healthy
+[selfcheck]                               ! some-plugin@0.1.2-rc.1 (declared bundle) rejects @deepseek-ai/dsh-tools
+[selfcheck]                               -> remove them, upgrade them, or grant the exemption per plugin: dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version 0.2.0-rc.2 --accept-risk
 ```
 
 行状态只有三种，**`skip` 不是故障**——你主动禁用的行就是该这样：
@@ -53,11 +66,12 @@ cordis 本来就有这个功能：`Loader.showLog()` 会在每次挂载时打 `a
 
 嵌套错误会**一路拆到底**（`AggregateError` → `cause` 链），你看到的是最内层的根因，不是最外层那句没用的废话。
 
-## 四项安装级检查
+## 五项安装级检查
 
 | 检查 | 回答什么问题 | 怎么做到 |
 | --- | --- | --- |
-| `deps.version-drift` | 我装的插件还认这个 dsh 版本吗？ | 读每行 `package.json` 的 `dsh.engines.dsh`，和已安装的 `@deepseek-ai/dsh` 版本比对。区间求值支持 `>=` `>` `<=` `<` `=` `^` `~` `\|\|` 和预发布版本。**解析不了的区间报告为"无法判定"，绝不当通过。** |
+| `deps.version-drift` | 我装的插件还**声称**认这个 dsh 版本吗？ | 读每行 `package.json` 的 `dsh.engines.dsh`，和已安装的 `@deepseek-ai/dsh` 版本比对。区间求值支持 `>=` `>` `<=` `<` `=` `^` `~` `\|\|` 和预发布版本。**解析不了的区间报告为"无法判定"，绝不当通过。** `dsh.engines.dsh` 是**声明，不是门槛**（宿主根本不读它），所以只有当宿主的 peer 门槛也会拒绝该插件时才判 **fail**，否则只给 warn。 |
+| `deps.peer-gate` | 哪些插件是 dsh **拒收**的？ | 从每个候选 manifest 重新推演宿主自己的规则：只算 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-*`；`workspace:^`/`~`/`*` 表示"当前运行时"；区间按 `includePrerelease` 求值，所以预发布宿主仍满足开放下界。候选来自 profile 声明的 bundles **以及**插件树的行——因为被拒的 bundle 根本进不了插件树。被 `compatibility.json` 精确版本豁免覆盖的，单独报告为**你主动放行**。 |
 | `config.files` | 我的 profile 配置文件合法吗？ | 解析 `cordis.yml` / `cordis.patch.yml` / `package.json`，并断言 loader 要求的形状（顶层数组、`dsh.profile.bundles` 存在）。拿不到 YAML 库时降级为结构检查。 |
 | `http.port` | 宿主真的在提供服务吗？ | 对 `webServer` 报告的端口做 loopback `GET /`。端口被占但拒绝连接 = 有陈旧进程攥着 socket。 |
 | `tools.registered` | 这一堆东西给模型贡献了什么？ | `ctx.tools.schemas()` —— 数量、名字、重名检测。 |
@@ -119,9 +133,9 @@ dsh plugin --profile web add link:/path/to/dsh-plugin-selfcheck
 npm test
 ```
 
-四个文件：`smoke`（挂载与容错、报告形状、落盘与护栏）、`roster`（三种状态、组过滤、嵌套异常展开、超时护栏）、`checks`（逐条 semver 区间、配置文件好坏、工具、端口、恶意 context 下四项全存活）、`host-resolution`（用**已安装 dsh 的真实 `defineTool`** 校验工具与输出 schema —— 值 schema DSL 的限制只有这里能暴露）。
+五个文件：`smoke`（挂载与容错、报告形状、落盘与护栏）、`roster`（三种状态、组过滤、嵌套异常展开、超时护栏）、`checks`（逐条 semver 区间、配置文件好坏、漂移的"陈旧声明"与"真会拦"两种判定、peer 门槛的干净与拒收两种情况、工具、端口、恶意 context 下五项全存活）、`compat`（对固定宿主版本逐条验证宿主兼容模型：peer 名过滤、`workspace:` 写法、**对着真 `semver` 实测的 `includePrerelease` 判定**、manifest 求值、豁免文件解析含损坏与畸形记录、bundle 发现）、`host-resolution`（用**已安装 dsh 的真实 `defineTool`** 校验工具与输出 schema —— 值 schema DSL 的限制只有这里能暴露）。
 
-无 dsh 安装时 `host-resolution.mjs` 会干净跳过。
+无 dsh 安装时 `host-resolution.mjs` 会干净跳过；`compat` 里依赖 semver 的断言也会跳过并明说。
 
 ## 与 `@linxin666/dsh-doctor` 的关系
 

@@ -107,7 +107,7 @@ assert.ok(['ok', 'warn', 'fail'].includes(value.level))
 assert.equal(typeof value.plugins, 'object')
 assert.equal(typeof value.plugins.mounted, 'number')
 assert.ok(Array.isArray(value.checks))
-assert.equal(value.checks.length, 4, 'the tool reports all four install checks')
+assert.equal(value.checks.length, 5, 'the tool reports all five install checks')
 assert.ok(Array.isArray(value.plugins.failures))
 console.log('tool returned: level=%s mounted=%s failed=%s', value.level, value.plugins.mounted, value.plugins.failed)
 

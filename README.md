@@ -2,7 +2,11 @@
 
 Terminal-first self-check for a [DeepSeek Harness](https://github.com/deepseek-ai) install.
 
-At every boot it prints, **in the console window dsh was started from**, every plugin row in the loader tree — mounted, disabled, or **failed with the exception text** — followed by four install-level checks. Then it gets out of the way.
+At every boot it prints, **in the console window dsh was started from**, every plugin row in the loader tree — mounted, disabled, or **failed with the exception text** — followed by five install-level checks. Then it gets out of the way.
+
+Since 0.2 the loader tree is not the whole picture: a plugin whose `peerDependencies` reject the running host is refused **before mounting**, so it appears in no row at all and a missing plugin looks exactly like a healthy install. The `deps.peer-gate` check closes that gap by re-evaluating the same rule from the manifests.
+
+> The plugin's own version is independent of the host's. `0.2.0` here means "second feature release of this plugin", not "for dsh 0.2".
 
 English | [中文](README.zh.md)
 
@@ -26,11 +30,20 @@ So enabling the flag only moves the silence. A roster a human can actually see h
 [selfcheck]  ok   dsh-tool-stable-diffusion                   include:stable-diffusion
 [selfcheck]  ---- plugins: 148 mounted, 28 disabled, 0 failed
 [selfcheck]  ---- install checks:
-[selfcheck]  ok   deps.version-drift    all 9 plugins declaring dsh.engines.dsh accept 0.1.2-rc.1
+[selfcheck]  ok   deps.version-drift    all 9 plugins declaring dsh.engines.dsh accept 0.2.0-rc.2
+[selfcheck]  ok   deps.peer-gate        no plugin rejects dsh 0.2.0-rc.2 (11 candidate(s) scanned, 0 incompatible)
 [selfcheck]  ok   config.files          ~/.dsh/profiles/web (3 files checked)
 [selfcheck]  ok   http.port             http://127.0.0.1:3080/ answered 200 in 3ms
 [selfcheck]  ok   tools.registered      34 model-facing tools registered
-[selfcheck]  ---- selfcheck OK - 148 mounted, 0 failed, checks 4 ok / 0 warn / 0 fail (742ms)
+[selfcheck]  ---- selfcheck OK - 148 mounted, 0 failed, checks 5 ok / 0 warn / 0 fail (742ms)
+```
+
+A refused plugin reads like this instead — note it is named even though no roster row mentions it:
+
+```
+[selfcheck]  fail deps.peer-gate        1 plugin(s) dsh 0.2.0-rc.2 refuses to mount - they are absent from the roster, not healthy
+[selfcheck]                               ! some-plugin@0.1.2-rc.1 (declared bundle) rejects @deepseek-ai/dsh-tools
+[selfcheck]                               -> remove them, upgrade them, or grant the exemption per plugin: dsh plugin --profile <profile> allow-version <pkg>@<version> --dsh-version 0.2.0-rc.2 --accept-risk
 ```
 
 Row states are three, and `skip` is **not** a failure — a row you disabled is working as intended:
@@ -56,11 +69,12 @@ The row count is much larger than your bundle count because the tree is enumerat
 
 Wrapped errors are unwrapped all the way down (`AggregateError` → `cause` chain), so you get the innermost cause rather than a useless top-level message.
 
-## The four install checks
+## The five install checks
 
 | Check | Question it answers | How |
 | --- | --- | --- |
-| `deps.version-drift` | Do my plugins still accept this dsh version? | Reads each row's `package.json` → `dsh.engines.dsh` and evaluates it against the installed `@deepseek-ai/dsh` version. The range evaluator supports `>=`, `>`, `<=`, `<`, `=`, `^`, `~`, `\|\|` and prereleases. A range it cannot parse is reported as **undecidable**, never as a pass. |
+| `deps.version-drift` | Do my plugins still *declare* support for this dsh version? | Reads each row's `package.json` → `dsh.engines.dsh` and evaluates it against the installed `@deepseek-ai/dsh` version. The range evaluator supports `>=`, `>`, `<=`, `<`, `=`, `^`, `~`, `\|\|` and prereleases. A range it cannot parse is reported as **undecidable**, never as a pass. `dsh.engines.dsh` is a **declaration, not a gate** — the host never reads it — so a stale value only **fails** when the host's peer gate would refuse the plugin too; otherwise it is a warning. |
+| `deps.peer-gate` | Which plugins will dsh **refuse to mount**? | Re-evaluates the host's own rule from every candidate manifest: only `@deepseek-ai/dsh` and `@deepseek-ai/dsh-*` peers count, `workspace:^`/`~`/`*` mean "the running runtime", and ranges are evaluated with `includePrerelease` so a prerelease host still satisfies an open lower bound. Candidates come from the profile's declared bundles **as well as** the loader rows, because a refused bundle never reaches the tree. Plugins covered by an exact-version exemption in `compatibility.json` are reported separately as **mounted on purpose**. |
 | `config.files` | Are my profile config files valid? | Parses `cordis.yml`, `cordis.patch.yml` and `package.json`, and asserts the shapes the loader requires (top-level array, `dsh.profile.bundles` present). Degrades to a structural check when no YAML parser is reachable. |
 | `http.port` | Is the host actually serving? | Loopback `GET /` against the port `webServer` reports. A bound port that refuses connections is the signature of a stale process still holding the socket. |
 | `tools.registered` | What did all this contribute to the model? | `ctx.tools.schemas()` — count, names, and duplicate detection. |
@@ -130,7 +144,8 @@ npm test
 | --- | --- |
 | `tests/smoke.mjs` | mounting against a service-less and a hostile context; report shape; file persistence and its guard |
 | `tests/roster.mjs` | the three row states, group filtering, `AggregateError`/`cause` unwrapping, the timeout guard |
-| `tests/checks.mjs` | every semver range form case by case; **a 304-case cross-check against the real `semver` package**; the config check against valid, malformed and bundle-less profiles; tools; the port probe; four checks surviving a throwing context |
+| `tests/checks.mjs` | every semver range form case by case; **a 304-case cross-check against the real `semver` package**; the config check against valid, malformed and bundle-less profiles; the drift check against stale and blocking declarations; the peer gate against clean and refused profiles; tools; the port probe; five checks surviving a throwing context |
+| `tests/compat.mjs` | the host compatibility model against a fixed runtime version: the peer-name filter, the `workspace:` spellings, **the `includePrerelease` verdicts measured against the real `semver`**, manifest evaluation, exemption parsing (including corrupt and malformed records), and bundle discovery |
 | `tests/host-resolution.mjs` | the tool and output schemas validated by the **real** `defineTool` from an installed dsh — the only place the value-schema DSL restrictions show up |
 
 `host-resolution.mjs` skips cleanly when no dsh install is present.

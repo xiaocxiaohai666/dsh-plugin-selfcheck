@@ -5,8 +5,9 @@
 #
 # The plugin contributes no HTTP route and no client half. At mount it waits for
 # the loader tree to settle and then prints every row to the console, followed by
-# four install-level checks. One model-facing tool (selfcheck_status) returns the
-# same report on demand.
+# five install-level checks -- among them deps.peer-gate, which names the plugins
+# dsh refuses to mount and which therefore appear in no row at all. One
+# model-facing tool (selfcheck_status) returns the same report on demand.
 - insert:
     - id: selfcheck
       name: 'dsh-plugin-selfcheck'
